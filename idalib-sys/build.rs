@@ -16,7 +16,13 @@ fn configure_and_generate(builder: BindgenBuilder, ida: &Path, output: impl AsRe
             #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
             &["-std=c++17", "-D__MACOS__=1", "-D__EA64__=1"],
             #[cfg(target_os = "windows")]
-            &["-std=c++17", "-D__NT__=1", "-D__EA64__=1"],
+            &[
+                "-std=c++17",
+                "-D__NT__=1",
+                "-D__EA64__=1",
+                "-fms-compatibility",
+                "-fms-compatibility-version=19.41",
+            ],
         )
         .respect_cxx_access_specs(true)
         .generate()
@@ -45,7 +51,13 @@ fn main() {
             #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
             &["-std=c++17", "-D__MACOS__=1", "-D__EA64__=1"],
             #[cfg(target_os = "windows")]
-            &["-std=c++17", "-D__NT__=1", "-D__EA64__=1"],
+            &[
+                "-std=c++17",
+                "-D__NT__=1",
+                "-D__EA64__=1",
+                "-fms-compatibility",
+                "-fms-compatibility-version=19.41",
+            ],
         )
         .build()
         .expect("parsed correctly");

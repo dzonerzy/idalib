@@ -561,7 +561,8 @@ pub mod hexrays {
     pub use super::ffix::{
         cblock_iter, idalib_hexrays_cblock_iter, idalib_hexrays_cblock_iter_next,
         idalib_hexrays_cblock_len, idalib_hexrays_cfunc_pseudocode, idalib_hexrays_cfuncptr_inner,
-        idalib_hexrays_decompile_func,
+        idalib_hexrays_cinsn_ea, idalib_hexrays_cinsn_is_expr, idalib_hexrays_cinsn_label_num,
+        idalib_hexrays_cinsn_op, idalib_hexrays_cinsn_opname, idalib_hexrays_decompile_func,
     };
 
     unsafe impl cxx::ExternType for cfunc_t {
@@ -767,6 +768,8 @@ mod ffix {
         include!("segm_extras.h");
         include!("search_extras.h");
         include!("strings_extras.h");
+        include!("typeinf_extras.h");
+        include!("ua_extras.h");
 
         type c_short = autocxx::c_short;
         type c_int = autocxx::c_int;
@@ -835,6 +838,13 @@ mod ffix {
         unsafe fn idalib_hexrays_cblock_iter(b: *mut cblock_t) -> UniquePtr<cblock_iter>;
         unsafe fn idalib_hexrays_cblock_iter_next(slf: Pin<&mut cblock_iter>) -> *mut cinsn_t;
         unsafe fn idalib_hexrays_cblock_len(b: *mut cblock_t) -> usize;
+
+        // cinsn_t accessors
+        unsafe fn idalib_hexrays_cinsn_op(insn: *const cinsn_t) -> c_int;
+        unsafe fn idalib_hexrays_cinsn_ea(insn: *const cinsn_t) -> c_ulonglong;
+        unsafe fn idalib_hexrays_cinsn_label_num(insn: *const cinsn_t) -> c_int;
+        unsafe fn idalib_hexrays_cinsn_is_expr(insn: *const cinsn_t) -> bool;
+        unsafe fn idalib_hexrays_cinsn_opname(insn: *const cinsn_t) -> String;
 
         unsafe fn idalib_inf_get_version() -> u16;
         unsafe fn idalib_inf_get_genflags() -> u16;
@@ -1060,6 +1070,88 @@ mod ffix {
         unsafe fn idalib_get_qword(ea: c_ulonglong) -> u64;
         unsafe fn idalib_get_bytes(ea: c_ulonglong, buf: &mut Vec<u8>) -> Result<usize>;
 
+        // ua - instruction mnemonic and operand printing
+        unsafe fn idalib_print_insn_mnem(ea: c_ulonglong) -> String;
+        unsafe fn idalib_print_operand(ea: c_ulonglong, n: c_int) -> String;
+
+        // typeinf - type system (basic)
+        unsafe fn idalib_get_type_str(ea: c_ulonglong) -> String;
+        unsafe fn idalib_get_op_type_str(ea: c_ulonglong, n: c_int) -> String;
+        unsafe fn idalib_print_type(ea: c_ulonglong, flags: c_int) -> String;
+        unsafe fn idalib_has_type(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_del_type(ea: c_ulonglong);
+        unsafe fn idalib_apply_cdecl(ea: c_ulonglong, decl: *const c_char) -> bool;
+        unsafe fn idalib_parse_decl(decl: *const c_char) -> String;
+        unsafe fn idalib_get_type_size(ea: c_ulonglong) -> u64;
+        unsafe fn idalib_is_ptr_type(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_is_func_type(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_is_struct_type(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_is_array_type(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_is_enum_type(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_get_func_prototype(ea: c_ulonglong) -> String;
+
+        // typeinf - named type operations
+        unsafe fn idalib_apply_named_type(ea: c_ulonglong, name: *const c_char) -> bool;
+        unsafe fn idalib_get_named_type(name: *const c_char) -> String;
+        unsafe fn idalib_has_named_type(name: *const c_char) -> bool;
+        unsafe fn idalib_get_named_type_size(name: *const c_char) -> u64;
+        unsafe fn idalib_get_named_type_tid(name: *const c_char) -> u64;
+
+        // typeinf - numbered type (ordinal) operations
+        unsafe fn idalib_get_ordinal_count() -> u32;
+        unsafe fn idalib_get_numbered_type(ordinal: u32) -> String;
+        unsafe fn idalib_get_numbered_type_name(ordinal: u32) -> String;
+
+        // typeinf - UDT (struct/union) operations at address
+        unsafe fn idalib_get_udt_member_count(ea: c_ulonglong) -> i32;
+        unsafe fn idalib_get_udt_member_info(ea: c_ulonglong, index: u32) -> String;
+        unsafe fn idalib_get_udt_size(ea: c_ulonglong) -> u64;
+        unsafe fn idalib_is_udt_union(ea: c_ulonglong) -> bool;
+        unsafe fn idalib_find_udt_member_by_name(ea: c_ulonglong, name: *const c_char) -> i32;
+        unsafe fn idalib_find_udt_member_by_offset(ea: c_ulonglong, offset: u64) -> i32;
+
+        // typeinf - named UDT operations
+        unsafe fn idalib_get_named_udt_member_count(name: *const c_char) -> i32;
+        unsafe fn idalib_get_named_udt_member_info(name: *const c_char, index: u32) -> String;
+        unsafe fn idalib_get_named_udt_size(name: *const c_char) -> u64;
+        unsafe fn idalib_is_named_udt_union(name: *const c_char) -> bool;
+        unsafe fn idalib_find_named_udt_member_by_name(
+            udt_name: *const c_char,
+            member_name: *const c_char,
+        ) -> i32;
+        unsafe fn idalib_find_named_udt_member_by_offset(name: *const c_char, offset: u64) -> i32;
+
+        // typeinf - enum operations
+        unsafe fn idalib_get_enum_member_count(ea: c_ulonglong) -> i32;
+        unsafe fn idalib_get_enum_member_info(ea: c_ulonglong, index: u32) -> String;
+        unsafe fn idalib_get_named_enum_member_count(name: *const c_char) -> i32;
+        unsafe fn idalib_get_named_enum_member_info(name: *const c_char, index: u32) -> String;
+
+        // typeinf - type library operations
+        unsafe fn idalib_import_type_library(tilname: *const c_char) -> bool;
+        unsafe fn idalib_get_loaded_tils() -> String;
+
+        // typeinf - UDT creation and modification
+        unsafe fn idalib_create_udt(name: *const c_char, is_union: bool) -> u32;
+        unsafe fn idalib_add_udt_member(
+            udt_name: *const c_char,
+            member_name: *const c_char,
+            member_type: *const c_char,
+            offset: i64,
+        ) -> i32;
+        unsafe fn idalib_del_udt_member(udt_name: *const c_char, member_index: u32) -> i32;
+        unsafe fn idalib_del_udt_members(
+            udt_name: *const c_char,
+            start_index: u32,
+            end_index: u32,
+        ) -> i32;
+
+        // typeinf - struct field xrefs
+        unsafe fn idalib_get_udt_member_tid(udt_name: *const c_char, member_index: u32) -> u64;
+        unsafe fn idalib_get_udt_member_xrefs(udt_name: *const c_char, member_index: u32)
+        -> String;
+        unsafe fn idalib_get_type_xrefs(type_name: *const c_char) -> String;
+
         unsafe fn idalib_get_input_file_path() -> String;
 
         unsafe fn idalib_plugin_version(p: *const plugin_t) -> u64;
@@ -1097,6 +1189,7 @@ pub mod insn {
     use super::ea_t;
     use super::ffi::decode_insn;
 
+    pub use super::ffix::{idalib_print_insn_mnem, idalib_print_operand};
     pub use super::pod::insn_t;
 
     pub fn decode(ea: ea_t) -> Option<insn_t> {
@@ -1263,6 +1356,60 @@ pub mod nalt {
         retrieve_input_file_md5, retrieve_input_file_sha256, retrieve_input_file_size,
     };
     pub use super::ffix::idalib_get_input_file_path;
+}
+
+pub mod typeinf {
+    // Basic type operations
+    pub use super::ffix::{
+        idalib_apply_cdecl, idalib_del_type, idalib_get_func_prototype, idalib_get_op_type_str,
+        idalib_get_type_size, idalib_get_type_str, idalib_has_type, idalib_is_array_type,
+        idalib_is_enum_type, idalib_is_func_type, idalib_is_ptr_type, idalib_is_struct_type,
+        idalib_parse_decl, idalib_print_type,
+    };
+
+    // Named type operations
+    pub use super::ffix::{
+        idalib_apply_named_type, idalib_get_named_type, idalib_get_named_type_size,
+        idalib_get_named_type_tid, idalib_has_named_type,
+    };
+
+    // Numbered type (ordinal) operations
+    pub use super::ffix::{
+        idalib_get_numbered_type, idalib_get_numbered_type_name, idalib_get_ordinal_count,
+    };
+
+    // UDT (struct/union) operations
+    pub use super::ffix::{
+        idalib_find_udt_member_by_name, idalib_find_udt_member_by_offset,
+        idalib_get_udt_member_count, idalib_get_udt_member_info, idalib_get_udt_size,
+        idalib_is_udt_union,
+    };
+
+    // Named UDT operations
+    pub use super::ffix::{
+        idalib_find_named_udt_member_by_name, idalib_find_named_udt_member_by_offset,
+        idalib_get_named_udt_member_count, idalib_get_named_udt_member_info,
+        idalib_get_named_udt_size, idalib_is_named_udt_union,
+    };
+
+    // Enum operations
+    pub use super::ffix::{
+        idalib_get_enum_member_count, idalib_get_enum_member_info,
+        idalib_get_named_enum_member_count, idalib_get_named_enum_member_info,
+    };
+
+    // Type library operations
+    pub use super::ffix::{idalib_get_loaded_tils, idalib_import_type_library};
+
+    // UDT creation and modification
+    pub use super::ffix::{
+        idalib_add_udt_member, idalib_create_udt, idalib_del_udt_member, idalib_del_udt_members,
+    };
+
+    // Struct field xrefs
+    pub use super::ffix::{
+        idalib_get_type_xrefs, idalib_get_udt_member_tid, idalib_get_udt_member_xrefs,
+    };
 }
 
 pub mod name {

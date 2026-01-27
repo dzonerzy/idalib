@@ -18,12 +18,70 @@ use crate::ffi::hexrays::{decompile_func, init_hexrays_plugin, term_hexrays_plug
 use crate::ffi::ida::{
     auto_wait, close_database_with, make_signatures, open_database_quiet, set_screen_ea,
 };
-use crate::ffi::insn::decode;
+use crate::ffi::insn::{decode, idalib_print_insn_mnem, idalib_print_operand};
 use crate::ffi::loader::find_plugin;
 use crate::ffi::name::set_name;
 use crate::ffi::processor::get_ph;
 use crate::ffi::search::{idalib_find_defined, idalib_find_imm, idalib_find_text};
 use crate::ffi::segment::{get_segm_by_name, get_segm_qty, getnseg, getseg};
+use crate::ffi::typeinf::{
+    // UDT creation and modification
+    idalib_add_udt_member,
+    // Basic type operations
+    idalib_apply_cdecl,
+    // Named type operations
+    idalib_apply_named_type,
+    idalib_create_udt,
+    idalib_del_type,
+    idalib_del_udt_member,
+    idalib_del_udt_members,
+    // Named UDT operations
+    idalib_find_named_udt_member_by_name,
+    idalib_find_named_udt_member_by_offset,
+    // UDT (struct/union) operations
+    idalib_find_udt_member_by_name,
+    idalib_find_udt_member_by_offset,
+    // Enum operations
+    idalib_get_enum_member_count,
+    idalib_get_enum_member_info,
+    idalib_get_func_prototype,
+    // Type library operations
+    idalib_get_loaded_tils,
+    idalib_get_named_enum_member_count,
+    idalib_get_named_enum_member_info,
+    idalib_get_named_type,
+    idalib_get_named_type_size,
+    idalib_get_named_type_tid,
+    idalib_get_named_udt_member_count,
+    idalib_get_named_udt_member_info,
+    idalib_get_named_udt_size,
+    // Numbered type (ordinal) operations
+    idalib_get_numbered_type,
+    idalib_get_numbered_type_name,
+    idalib_get_op_type_str,
+    idalib_get_ordinal_count,
+    idalib_get_type_size,
+    idalib_get_type_str,
+    // Struct field xrefs
+    idalib_get_type_xrefs,
+    idalib_get_udt_member_count,
+    idalib_get_udt_member_info,
+    idalib_get_udt_member_tid,
+    idalib_get_udt_member_xrefs,
+    idalib_get_udt_size,
+    idalib_has_named_type,
+    idalib_has_type,
+    idalib_import_type_library,
+    idalib_is_array_type,
+    idalib_is_enum_type,
+    idalib_is_func_type,
+    idalib_is_named_udt_union,
+    idalib_is_ptr_type,
+    idalib_is_struct_type,
+    idalib_is_udt_union,
+    idalib_parse_decl,
+    idalib_print_type,
+};
 use crate::ffi::util::{is_align_insn, next_head, prev_head, str2reg};
 use crate::ffi::xref::{xrefblk_t, xrefblk_t_first_from, xrefblk_t_first_to};
 
@@ -233,6 +291,602 @@ impl IDB {
     pub fn insn_at(&self, ea: Address) -> Option<Insn> {
         let insn = decode(ea.into())?;
         Some(Insn::from_repr(insn))
+    }
+
+    /// Get the instruction mnemonic at the given address (e.g., "mov", "call", "push")
+    ///
+    /// Returns an empty string if no instruction exists at the address.
+    pub fn insn_mnemonic(&self, ea: Address) -> String {
+        unsafe { idalib_print_insn_mnem(ea.into()) }
+    }
+
+    /// Get the string representation of an operand at the given address
+    ///
+    /// # Arguments
+    /// * `ea` - The address of the instruction
+    /// * `n` - The operand index (0-based)
+    ///
+    /// Returns an empty string if the operand doesn't exist or can't be formatted.
+    pub fn insn_operand(&self, ea: Address, n: usize) -> String {
+        unsafe { idalib_print_operand(ea.into(), autocxx::c_int(n as i32)) }
+    }
+
+    // =========================================================================
+    // Type System
+    // =========================================================================
+
+    /// Get the type string at an address (e.g., "int", "char *", "struct foo")
+    ///
+    /// Returns an empty string if no type is defined at the address.
+    pub fn get_type(&self, ea: Address) -> String {
+        unsafe { idalib_get_type_str(ea.into()) }
+    }
+
+    /// Get the type of an operand at an address
+    ///
+    /// Returns an empty string if no type is defined for the operand.
+    pub fn get_operand_type(&self, ea: Address, n: usize) -> String {
+        unsafe { idalib_get_op_type_str(ea.into(), autocxx::c_int(n as i32)) }
+    }
+
+    /// Print the type at an address with optional formatting flags
+    ///
+    /// # Arguments
+    /// * `ea` - The address
+    /// * `flags` - Formatting flags (0 for default single-line output)
+    pub fn print_type(&self, ea: Address, flags: i32) -> String {
+        unsafe { idalib_print_type(ea.into(), autocxx::c_int(flags)) }
+    }
+
+    /// Check if a type is defined at an address
+    pub fn has_type(&self, ea: Address) -> bool {
+        unsafe { idalib_has_type(ea.into()) }
+    }
+
+    /// Delete the type at an address
+    pub fn del_type(&self, ea: Address) {
+        unsafe { idalib_del_type(ea.into()) }
+    }
+
+    /// Parse a C declaration and apply it to an address
+    ///
+    /// # Arguments
+    /// * `ea` - The address to apply the type to
+    /// * `decl` - C declaration string (e.g., "int foo" or "void __stdcall func(int x)")
+    ///
+    /// Returns true on success.
+    pub fn apply_type(&self, ea: Address, decl: &str) -> bool {
+        let c_decl = match CString::new(decl) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        unsafe { idalib_apply_cdecl(ea.into(), c_decl.as_ptr()) }
+    }
+
+    /// Parse a C declaration and return the resulting type string
+    ///
+    /// This is useful for validating type strings without applying them.
+    pub fn parse_type(&self, decl: &str) -> String {
+        let c_decl = match CString::new(decl) {
+            Ok(s) => s,
+            Err(_) => return String::new(),
+        };
+        unsafe { idalib_parse_decl(c_decl.as_ptr()) }
+    }
+
+    /// Get the size of a type at an address (in bytes)
+    ///
+    /// Returns 0 if no type is defined.
+    pub fn get_type_size(&self, ea: Address) -> u64 {
+        unsafe { idalib_get_type_size(ea.into()) }
+    }
+
+    /// Check if the type at an address is a pointer
+    pub fn is_ptr_type(&self, ea: Address) -> bool {
+        unsafe { idalib_is_ptr_type(ea.into()) }
+    }
+
+    /// Check if the type at an address is a function
+    pub fn is_func_type(&self, ea: Address) -> bool {
+        unsafe { idalib_is_func_type(ea.into()) }
+    }
+
+    /// Check if the type at an address is a struct or union
+    pub fn is_struct_type(&self, ea: Address) -> bool {
+        unsafe { idalib_is_struct_type(ea.into()) }
+    }
+
+    /// Check if the type at an address is an array
+    pub fn is_array_type(&self, ea: Address) -> bool {
+        unsafe { idalib_is_array_type(ea.into()) }
+    }
+
+    /// Check if the type at an address is an enum
+    pub fn is_enum_type(&self, ea: Address) -> bool {
+        unsafe { idalib_is_enum_type(ea.into()) }
+    }
+
+    /// Get the function prototype as a string (for function addresses)
+    pub fn get_func_prototype(&self, ea: Address) -> String {
+        unsafe { idalib_get_func_prototype(ea.into()) }
+    }
+
+    // =========================================================================
+    // Named Type Operations
+    // =========================================================================
+
+    /// Apply a named type from the type library to an address
+    ///
+    /// # Arguments
+    /// * `ea` - The address to apply the type to
+    /// * `name` - Name of the type in the type library (e.g., "SOCKET", "HANDLE", "FILE")
+    ///
+    /// Returns true on success.
+    pub fn apply_named_type(&self, ea: Address, name: &str) -> bool {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        unsafe { idalib_apply_named_type(ea.into(), c_name.as_ptr()) }
+    }
+
+    /// Get a named type from the type library and return its string representation
+    ///
+    /// Returns an empty string if the type is not found.
+    pub fn get_named_type(&self, name: &str) -> String {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return String::new(),
+        };
+        unsafe { idalib_get_named_type(c_name.as_ptr()) }
+    }
+
+    /// Check if a named type exists in the type library
+    pub fn has_named_type(&self, name: &str) -> bool {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        unsafe { idalib_has_named_type(c_name.as_ptr()) }
+    }
+
+    /// Get the size of a named type in bytes
+    ///
+    /// Returns 0 if the type is not found.
+    pub fn get_named_type_size(&self, name: &str) -> u64 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+        unsafe { idalib_get_named_type_size(c_name.as_ptr()) }
+    }
+
+    /// Get the TID (type ID) for a named type
+    ///
+    /// Returns BADADDR if not found.
+    pub fn get_named_type_tid(&self, name: &str) -> u64 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return u64::MAX,
+        };
+        unsafe { idalib_get_named_type_tid(c_name.as_ptr()) }
+    }
+
+    // =========================================================================
+    // Numbered Type (Ordinal) Operations
+    // =========================================================================
+
+    /// Get the number of local types in the database
+    pub fn get_local_type_count(&self) -> u32 {
+        unsafe { idalib_get_ordinal_count() }
+    }
+
+    /// Get a local type by its ordinal number
+    ///
+    /// Returns an empty string if the ordinal is invalid.
+    pub fn get_local_type(&self, ordinal: u32) -> String {
+        unsafe { idalib_get_numbered_type(ordinal) }
+    }
+
+    /// Get the name of a local type by its ordinal number
+    ///
+    /// Returns an empty string if the ordinal is invalid.
+    pub fn get_local_type_name(&self, ordinal: u32) -> String {
+        unsafe { idalib_get_numbered_type_name(ordinal) }
+    }
+
+    // =========================================================================
+    // UDT (Struct/Union) Operations at Address
+    // =========================================================================
+
+    /// Get the number of members in a struct/union at an address
+    ///
+    /// Returns -1 if no struct/union type is defined at the address.
+    pub fn get_udt_member_count(&self, ea: Address) -> i32 {
+        unsafe { idalib_get_udt_member_count(ea.into()) }
+    }
+
+    /// Get information about a UDT member by index
+    ///
+    /// Returns a tuple of (name, type_str, offset, size) or None if not found.
+    pub fn get_udt_member(&self, ea: Address, index: u32) -> Option<(String, String, u64, u64)> {
+        let info = unsafe { idalib_get_udt_member_info(ea.into(), index) };
+        if info.is_empty() {
+            return None;
+        }
+        // Parse "name|type|offset|size"
+        let parts: Vec<&str> = info.split('|').collect();
+        if parts.len() != 4 {
+            return None;
+        }
+        let offset = parts[2].parse().ok()?;
+        let size = parts[3].parse().ok()?;
+        Some((parts[0].to_string(), parts[1].to_string(), offset, size))
+    }
+
+    /// Get the total size of a UDT at an address in bytes
+    ///
+    /// Returns 0 if no UDT is defined at the address.
+    pub fn get_udt_size(&self, ea: Address) -> u64 {
+        unsafe { idalib_get_udt_size(ea.into()) }
+    }
+
+    /// Check if the UDT at an address is a union (vs struct)
+    pub fn is_udt_union(&self, ea: Address) -> bool {
+        unsafe { idalib_is_udt_union(ea.into()) }
+    }
+
+    /// Find a UDT member by name and return its index
+    ///
+    /// Returns -1 if not found.
+    pub fn find_udt_member_by_name(&self, ea: Address, name: &str) -> i32 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        unsafe { idalib_find_udt_member_by_name(ea.into(), c_name.as_ptr()) }
+    }
+
+    /// Find the UDT member at a given byte offset and return its index
+    ///
+    /// Returns -1 if not found.
+    pub fn find_udt_member_by_offset(&self, ea: Address, offset: u64) -> i32 {
+        unsafe { idalib_find_udt_member_by_offset(ea.into(), offset) }
+    }
+
+    // =========================================================================
+    // Named UDT Operations (by type name)
+    // =========================================================================
+
+    /// Get the number of members in a named struct/union
+    ///
+    /// Returns -1 if the type is not found or is not a UDT.
+    pub fn get_named_udt_member_count(&self, name: &str) -> i32 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        unsafe { idalib_get_named_udt_member_count(c_name.as_ptr()) }
+    }
+
+    /// Get information about a named UDT member by index
+    ///
+    /// Returns a tuple of (name, type_str, offset, size) or None if not found.
+    pub fn get_named_udt_member(
+        &self,
+        udt_name: &str,
+        index: u32,
+    ) -> Option<(String, String, u64, u64)> {
+        let c_name = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let info = unsafe { idalib_get_named_udt_member_info(c_name.as_ptr(), index) };
+        if info.is_empty() {
+            return None;
+        }
+        // Parse "name|type|offset|size"
+        let parts: Vec<&str> = info.split('|').collect();
+        if parts.len() != 4 {
+            return None;
+        }
+        let offset = parts[2].parse().ok()?;
+        let size = parts[3].parse().ok()?;
+        Some((parts[0].to_string(), parts[1].to_string(), offset, size))
+    }
+
+    /// Get the total size of a named UDT in bytes
+    ///
+    /// Returns 0 if the type is not found or is not a UDT.
+    pub fn get_named_udt_size(&self, name: &str) -> u64 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+        unsafe { idalib_get_named_udt_size(c_name.as_ptr()) }
+    }
+
+    /// Check if a named type is a union (vs struct)
+    pub fn is_named_udt_union(&self, name: &str) -> bool {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        unsafe { idalib_is_named_udt_union(c_name.as_ptr()) }
+    }
+
+    /// Find a member by name in a named UDT and return its index
+    ///
+    /// Returns -1 if not found.
+    pub fn find_named_udt_member_by_name(&self, udt_name: &str, member_name: &str) -> i32 {
+        let c_udt_name = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        let c_member_name = match CString::new(member_name) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        unsafe { idalib_find_named_udt_member_by_name(c_udt_name.as_ptr(), c_member_name.as_ptr()) }
+    }
+
+    /// Find a member by offset in a named UDT and return its index
+    ///
+    /// Returns -1 if not found.
+    pub fn find_named_udt_member_by_offset(&self, name: &str, offset: u64) -> i32 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        unsafe { idalib_find_named_udt_member_by_offset(c_name.as_ptr(), offset) }
+    }
+
+    // =========================================================================
+    // Enum Operations
+    // =========================================================================
+
+    /// Get the number of members in an enum at an address
+    ///
+    /// Returns -1 if no enum type is defined at the address.
+    pub fn get_enum_member_count(&self, ea: Address) -> i32 {
+        unsafe { idalib_get_enum_member_count(ea.into()) }
+    }
+
+    /// Get enum member info by index
+    ///
+    /// Returns a tuple of (name, value) or None if not found.
+    pub fn get_enum_member(&self, ea: Address, index: u32) -> Option<(String, u64)> {
+        let info = unsafe { idalib_get_enum_member_info(ea.into(), index) };
+        if info.is_empty() {
+            return None;
+        }
+        // Parse "name|value"
+        let parts: Vec<&str> = info.split('|').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let value = parts[1].parse().ok()?;
+        Some((parts[0].to_string(), value))
+    }
+
+    /// Get the number of members in a named enum
+    ///
+    /// Returns -1 if the type is not found or is not an enum.
+    pub fn get_named_enum_member_count(&self, name: &str) -> i32 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        unsafe { idalib_get_named_enum_member_count(c_name.as_ptr()) }
+    }
+
+    /// Get named enum member info by index
+    ///
+    /// Returns a tuple of (name, value) or None if not found.
+    pub fn get_named_enum_member(&self, enum_name: &str, index: u32) -> Option<(String, u64)> {
+        let c_name = match CString::new(enum_name) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let info = unsafe { idalib_get_named_enum_member_info(c_name.as_ptr(), index) };
+        if info.is_empty() {
+            return None;
+        }
+        // Parse "name|value"
+        let parts: Vec<&str> = info.split('|').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let value = parts[1].parse().ok()?;
+        Some((parts[0].to_string(), value))
+    }
+
+    // =========================================================================
+    // Type Library Operations
+    // =========================================================================
+
+    /// Import a type library (.til file)
+    ///
+    /// # Arguments
+    /// * `tilname` - Name of the type library (e.g., "mssdk_win10", "gnulnx_x64")
+    ///
+    /// Returns true on success.
+    pub fn import_type_library(&self, tilname: &str) -> bool {
+        let c_name = match CString::new(tilname) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        unsafe { idalib_import_type_library(c_name.as_ptr()) }
+    }
+
+    /// Get a list of loaded type libraries
+    ///
+    /// Returns a vector of type library names.
+    pub fn get_loaded_type_libraries(&self) -> Vec<String> {
+        let tils = unsafe { idalib_get_loaded_tils() };
+        if tils.is_empty() {
+            return Vec::new();
+        }
+        tils.split(';').map(|s| s.to_string()).collect()
+    }
+
+    // =========================================================================
+    // UDT (Struct/Union) Creation and Modification
+    // =========================================================================
+
+    /// Create a new struct or union in the local type library
+    ///
+    /// # Arguments
+    /// * `name` - Name of the new struct/union
+    /// * `is_union` - true for union, false for struct
+    ///
+    /// Returns the ordinal of the new type, or 0 on failure.
+    pub fn create_struct(&self, name: &str, is_union: bool) -> u32 {
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+        unsafe { idalib_create_udt(c_name.as_ptr(), is_union) }
+    }
+
+    /// Add a member to a struct or union
+    ///
+    /// # Arguments
+    /// * `udt_name` - Name of the struct/union to modify
+    /// * `member_name` - Name of the new member
+    /// * `member_type` - C type declaration (e.g., "int", "char *", "unsigned long")
+    /// * `offset` - Byte offset for the member, or None for auto-placement at end
+    ///
+    /// Returns 0 (TERR_OK) on success, negative error code on failure.
+    pub fn add_struct_member(
+        &self,
+        udt_name: &str,
+        member_name: &str,
+        member_type: &str,
+        offset: Option<i64>,
+    ) -> i32 {
+        let c_udt = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return -5, // TERR_BAD_TYPE
+        };
+        let c_member = match CString::new(member_name) {
+            Ok(s) => s,
+            Err(_) => return -3, // TERR_BAD_NAME
+        };
+        let c_type = match CString::new(member_type) {
+            Ok(s) => s,
+            Err(_) => return -5, // TERR_BAD_TYPE
+        };
+        unsafe {
+            idalib_add_udt_member(
+                c_udt.as_ptr(),
+                c_member.as_ptr(),
+                c_type.as_ptr(),
+                offset.unwrap_or(-1),
+            )
+        }
+    }
+
+    /// Delete a member from a struct or union by index
+    ///
+    /// # Arguments
+    /// * `udt_name` - Name of the struct/union to modify
+    /// * `member_index` - Index of the member to delete
+    ///
+    /// Returns 0 (TERR_OK) on success, negative error code on failure.
+    pub fn del_struct_member(&self, udt_name: &str, member_index: u32) -> i32 {
+        let c_name = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return -5, // TERR_BAD_TYPE
+        };
+        unsafe { idalib_del_udt_member(c_name.as_ptr(), member_index) }
+    }
+
+    /// Delete multiple members from a struct or union by index range
+    ///
+    /// # Arguments
+    /// * `udt_name` - Name of the struct/union to modify
+    /// * `start_index` - First member to delete (inclusive)
+    /// * `end_index` - Last member to delete (exclusive)
+    ///
+    /// Returns 0 (TERR_OK) on success, negative error code on failure.
+    pub fn del_struct_members(&self, udt_name: &str, start_index: u32, end_index: u32) -> i32 {
+        let c_name = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return -5, // TERR_BAD_TYPE
+        };
+        unsafe { idalib_del_udt_members(c_name.as_ptr(), start_index, end_index) }
+    }
+
+    // =========================================================================
+    // Struct Field XRefs
+    // =========================================================================
+
+    /// Get the TID (type ID) for a struct/union member
+    ///
+    /// This TID can be used to find xrefs to the member.
+    ///
+    /// # Arguments
+    /// * `udt_name` - Name of the struct/union
+    /// * `member_index` - Index of the member
+    ///
+    /// Returns the TID, or None if not found.
+    pub fn get_struct_member_tid(&self, udt_name: &str, member_index: u32) -> Option<u64> {
+        let c_name = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let tid = unsafe { idalib_get_udt_member_tid(c_name.as_ptr(), member_index) };
+        if tid == u64::MAX { None } else { Some(tid) }
+    }
+
+    /// Get cross-references to a struct/union member
+    ///
+    /// # Arguments
+    /// * `udt_name` - Name of the struct/union
+    /// * `member_index` - Index of the member
+    ///
+    /// Returns a vector of addresses that reference this member.
+    pub fn get_struct_member_xrefs(&self, udt_name: &str, member_index: u32) -> Vec<Address> {
+        let c_name = match CString::new(udt_name) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let xrefs = unsafe { idalib_get_udt_member_xrefs(c_name.as_ptr(), member_index) };
+        if xrefs.is_empty() {
+            return Vec::new();
+        }
+        xrefs
+            .split(';')
+            .filter_map(|s| {
+                let s = s.trim_start_matches("0x");
+                u64::from_str_radix(s, 16).ok()
+            })
+            .collect()
+    }
+
+    /// Get cross-references to a named type (struct/union/enum)
+    ///
+    /// # Arguments
+    /// * `type_name` - Name of the type
+    ///
+    /// Returns a vector of addresses that reference this type.
+    pub fn get_type_xrefs(&self, type_name: &str) -> Vec<Address> {
+        let c_name = match CString::new(type_name) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let xrefs = unsafe { idalib_get_type_xrefs(c_name.as_ptr()) };
+        if xrefs.is_empty() {
+            return Vec::new();
+        }
+        xrefs
+            .split(';')
+            .filter_map(|s| {
+                let s = s.trim_start_matches("0x");
+                u64::from_str_radix(s, 16).ok()
+            })
+            .collect()
     }
 
     pub fn decompile<'a>(&'a self, f: &Function<'a>) -> Result<CFunction<'a>, IDAError> {

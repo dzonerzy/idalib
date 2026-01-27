@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
+use crate::Address;
 use crate::ffi::hexrays::{
     cblock_iter, cblock_t, cfunc_t, cfuncptr_t, cinsn_t, idalib_hexrays_cblock_iter,
     idalib_hexrays_cblock_iter_next, idalib_hexrays_cblock_len, idalib_hexrays_cfunc_pseudocode,
-    idalib_hexrays_cfuncptr_inner,
+    idalib_hexrays_cfuncptr_inner, idalib_hexrays_cinsn_ea, idalib_hexrays_cinsn_is_expr,
+    idalib_hexrays_cinsn_label_num, idalib_hexrays_cinsn_op, idalib_hexrays_cinsn_opname,
 };
 use crate::idb::IDB;
 
@@ -42,10 +44,37 @@ impl<'a> Iterator for CBlockIter<'a> {
     }
 }
 
+/// A decompiled C statement (cinsn_t wrapper)
 pub struct CInsn<'a> {
-    #[allow(unused)]
     ptr: *mut cinsn_t,
     _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> CInsn<'a> {
+    /// Get the statement type as a numeric value (ctype_t)
+    pub fn op(&self) -> i32 {
+        unsafe { idalib_hexrays_cinsn_op(self.ptr).0 }
+    }
+
+    /// Get the address associated with this statement
+    pub fn address(&self) -> Address {
+        unsafe { idalib_hexrays_cinsn_ea(self.ptr).0.into() }
+    }
+
+    /// Get the label number (-1 means no label)
+    pub fn label_num(&self) -> i32 {
+        unsafe { idalib_hexrays_cinsn_label_num(self.ptr).0 }
+    }
+
+    /// Check if this item is an expression (cot_* types) rather than a statement (cit_* types)
+    pub fn is_expr(&self) -> bool {
+        unsafe { idalib_hexrays_cinsn_is_expr(self.ptr) }
+    }
+
+    /// Get the statement/expression type as a human-readable string
+    pub fn opname(&self) -> String {
+        unsafe { idalib_hexrays_cinsn_opname(self.ptr) }
+    }
 }
 
 impl<'a> CFunction<'a> {
