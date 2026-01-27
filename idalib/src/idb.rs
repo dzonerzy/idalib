@@ -4,12 +4,15 @@ use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 
 use crate::ffi::BADADDR;
-use crate::ffi::bytes::*;
+use crate::ffi::bytes::{
+    get_flags, idalib_get_byte, idalib_get_bytes, idalib_get_dword, idalib_get_qword,
+    idalib_get_word, patch_byte, patch_bytes, patch_dword, patch_qword, patch_word,
+};
 use crate::ffi::comments::{append_cmt, idalib_get_cmt, set_cmt};
 use crate::ffi::conversions::idalib_ea2str;
 use crate::ffi::entry::{get_entry, get_entry_ordinal, get_entry_qty};
 use crate::ffi::func::{
-    get_func, get_func_qty, getn_func, idalib_get_func_cmt, idalib_set_func_cmt,
+    add_func, del_func, get_func, get_func_qty, getn_func, idalib_get_func_cmt, idalib_set_func_cmt,
 };
 use crate::ffi::hexrays::{decompile_func, init_hexrays_plugin, term_hexrays_plugin};
 use crate::ffi::ida::{
@@ -17,6 +20,7 @@ use crate::ffi::ida::{
 };
 use crate::ffi::insn::decode;
 use crate::ffi::loader::find_plugin;
+use crate::ffi::name::set_name;
 use crate::ffi::processor::get_ph;
 use crate::ffi::search::{idalib_find_defined, idalib_find_imm, idalib_find_text};
 use crate::ffi::segment::{get_segm_by_name, get_segm_qty, getnseg, getseg};
@@ -556,6 +560,106 @@ impl IDB {
         }
 
         buf
+    }
+
+    // =========================================================================
+    // Patching / Writing bytes
+    // =========================================================================
+
+    /// Patch a single byte at the given address.
+    ///
+    /// Returns `true` if the patch was successful.
+    pub fn patch_byte(&self, ea: Address, value: u8) -> bool {
+        use autocxx::prelude::*;
+        unsafe { patch_byte(ea.into(), c_ulonglong(value as u64)) }
+    }
+
+    /// Patch a 16-bit word at the given address.
+    ///
+    /// Returns `true` if the patch was successful.
+    pub fn patch_word(&self, ea: Address, value: u16) -> bool {
+        use autocxx::prelude::*;
+        unsafe { patch_word(ea.into(), c_ulonglong(value as u64)) }
+    }
+
+    /// Patch a 32-bit dword at the given address.
+    ///
+    /// Returns `true` if the patch was successful.
+    pub fn patch_dword(&self, ea: Address, value: u32) -> bool {
+        use autocxx::prelude::*;
+        unsafe { patch_dword(ea.into(), c_ulonglong(value as u64)) }
+    }
+
+    /// Patch a 64-bit qword at the given address.
+    ///
+    /// Returns `true` if the patch was successful.
+    pub fn patch_qword(&self, ea: Address, value: u64) -> bool {
+        use autocxx::prelude::*;
+        unsafe { patch_qword(ea.into(), c_ulonglong(value)) }
+    }
+
+    /// Patch multiple bytes at the given address.
+    pub fn patch_bytes(&self, ea: Address, bytes: &[u8]) {
+        use autocxx::prelude::*;
+        unsafe { patch_bytes(ea.into(), bytes.as_ptr() as *const c_void, bytes.len()) }
+    }
+
+    // =========================================================================
+    // Naming
+    // =========================================================================
+
+    /// Set a name at the given address.
+    ///
+    /// Returns `true` if the name was successfully set.
+    ///
+    /// # Arguments
+    /// * `ea` - The address to name
+    /// * `name` - The new name
+    /// * `flags` - Flags controlling the naming behavior (use `SetNameFlags` from `name` module)
+    pub fn set_name(&self, ea: Address, name: &str, flags: i32) -> bool {
+        use autocxx::prelude::*;
+        let c_name = match CString::new(name) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        unsafe { set_name(ea.into(), c_name.as_ptr(), c_int(flags)) }
+    }
+
+    /// Set a name at the given address, forcing replacement of any existing name.
+    pub fn force_name(&self, ea: Address, name: &str) -> bool {
+        // SN_FORCE = 0x800
+        self.set_name(ea, name, 0x800)
+    }
+
+    /// Delete the name at the given address.
+    pub fn delete_name(&self, ea: Address) -> bool {
+        self.set_name(ea, "", 0)
+    }
+
+    // =========================================================================
+    // Function management
+    // =========================================================================
+
+    /// Create a new function at the given address.
+    ///
+    /// IDA will automatically determine the function boundaries.
+    /// Returns `true` if the function was created successfully.
+    pub fn add_function(&self, ea: Address) -> bool {
+        unsafe { add_func(ea.into(), BADADDR) }
+    }
+
+    /// Create a new function with explicit start and end addresses.
+    ///
+    /// Returns `true` if the function was created successfully.
+    pub fn add_function_with_bounds(&self, start: Address, end: Address) -> bool {
+        unsafe { add_func(start.into(), end.into()) }
+    }
+
+    /// Delete the function at the given address.
+    ///
+    /// Returns `true` if the function was deleted successfully.
+    pub fn delete_function(&self, ea: Address) -> bool {
+        unsafe { del_func(ea.into()) }
     }
 
     pub fn find_plugin(

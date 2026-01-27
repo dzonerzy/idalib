@@ -384,6 +384,36 @@ include_cpp! {
     generate!("is_in_nlist")
     generate!("is_public_name")
     generate!("is_weak_name")
+
+    // naming - write operations
+    generate!("set_name")
+    generate!("SN_CHECK")
+    generate!("SN_NOCHECK")
+    generate!("SN_PUBLIC")
+    generate!("SN_NON_PUBLIC")
+    generate!("SN_WEAK")
+    generate!("SN_NON_WEAK")
+    generate!("SN_AUTO")
+    generate!("SN_NON_AUTO")
+    generate!("SN_NOLIST")
+    generate!("SN_NOWARN")
+    generate!("SN_LOCAL")
+    generate!("SN_IDBENC")
+    generate!("SN_FORCE")
+    generate!("SN_NODUMMY")
+    generate!("SN_DELTAIL")
+
+    // bytes - write operations
+    generate!("patch_byte")
+    generate!("patch_word")
+    generate!("patch_dword")
+    generate!("patch_qword")
+    generate!("patch_bytes")
+
+    // funcs - write operations
+    generate!("add_func")
+    generate!("add_func_ex")
+    generate!("del_func")
 }
 
 pub mod hexrays {
@@ -1114,8 +1144,9 @@ pub mod insn {
 
 pub mod func {
     pub use super::ffi::{
-        calc_thunk_func_target, fc_block_type_t, func_t, gdl_graph_t, get_func, get_func_num,
-        get_func_qty, getn_func, lock_func, qbasic_block_t, qflow_chart_t,
+        add_func, add_func_ex, calc_thunk_func_target, del_func, fc_block_type_t, func_t,
+        gdl_graph_t, get_func, get_func_num, get_func_qty, getn_func, lock_func, qbasic_block_t,
+        qflow_chart_t,
     };
     pub use super::ffix::{
         idalib_func_flags, idalib_func_flow_chart, idalib_func_name, idalib_get_func_cmt,
@@ -1166,7 +1197,10 @@ pub mod segment {
 }
 
 pub mod bytes {
-    pub use super::ffi::{flags64_t, get_flags, is_code, is_data};
+    pub use super::ffi::{
+        flags64_t, get_flags, is_code, is_data, patch_byte, patch_bytes, patch_dword, patch_qword,
+        patch_word,
+    };
     pub use super::ffix::{
         idalib_get_byte, idalib_get_bytes, idalib_get_dword, idalib_get_qword, idalib_get_word,
     };
@@ -1233,8 +1267,10 @@ pub mod nalt {
 
 pub mod name {
     pub use super::ffi::{
+        SN_AUTO, SN_CHECK, SN_DELTAIL, SN_FORCE, SN_IDBENC, SN_LOCAL, SN_NOCHECK, SN_NODUMMY,
+        SN_NOLIST, SN_NON_AUTO, SN_NON_PUBLIC, SN_NON_WEAK, SN_NOWARN, SN_PUBLIC, SN_WEAK,
         get_nlist_ea, get_nlist_idx, get_nlist_name, get_nlist_size, is_in_nlist, is_public_name,
-        is_weak_name,
+        is_weak_name, set_name,
     };
 }
 
