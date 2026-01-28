@@ -84,6 +84,87 @@ rust::String idalib_parse_decl(const char *decl) {
   return rust::String("");
 }
 
+// Parse a C type declaration and save it to the local type library
+// decl: C declaration string (e.g., "struct Foo { int a; int b; };")
+// Returns the ordinal of the created type, or 0 on failure
+uint32_t idalib_parse_and_save_type(const char *decl) {
+  tinfo_t tif;
+  qstring name;
+  
+  // Parse the declaration
+  if (!parse_decl(&tif, &name, nullptr, decl, PT_SIL)) {
+    return 0;
+  }
+  
+  // If no name was extracted, we can't save it
+  if (name.empty()) {
+    return 0;
+  }
+  
+  // Save it to the local type library
+  tinfo_code_t code = tif.set_named_type(nullptr, name.c_str(), NTF_TYPE);
+  if (code != TERR_OK) {
+    // If type already exists, try with NTF_REPLACE
+    code = tif.set_named_type(nullptr, name.c_str(), NTF_REPLACE);
+    if (code != TERR_OK) {
+      return 0;
+    }
+  }
+  
+  return tif.get_ordinal();
+}
+
+// Parse multiple C declarations and save them to the local type library
+// decls: C declarations text (can contain multiple struct/enum/typedef declarations)
+// Returns the number of types successfully created
+//
+// Note: IDA's parse_decls() returns the number of ERRORS (0 = success), not the
+// number of types created. So we use a manual parsing approach to count types.
+uint32_t idalib_parse_and_save_types(const char *decls) {
+  uint32_t count = 0;
+  
+  // Manually split and parse each declaration
+  // This handles cases like "struct A { int x; }; struct B { int y; };"
+  qstring input(decls);
+  qstring current_decl;
+  int brace_depth = 0;
+  
+  for (size_t i = 0; i < input.length(); i++) {
+    char c = input[i];
+    current_decl.append(c);
+    
+    if (c == '{') {
+      brace_depth++;
+    } else if (c == '}') {
+      brace_depth--;
+    } else if (c == ';' && brace_depth == 0) {
+      // End of a declaration - try to parse and save it
+      current_decl.trim2();
+      if (!current_decl.empty()) {
+        tinfo_t tif;
+        qstring name;
+        if (parse_decl(&tif, &name, nullptr, current_decl.c_str(), PT_SIL)) {
+          if (!name.empty()) {
+            tinfo_code_t code = tif.set_named_type(nullptr, name.c_str(), NTF_TYPE);
+            if (code == TERR_OK || code == TERR_DUPNAME) {
+              count++;
+            } else {
+              // Try with replace flag
+              code = tif.set_named_type(nullptr, name.c_str(), NTF_REPLACE);
+              if (code == TERR_OK) {
+                count++;
+              }
+            }
+          }
+        }
+      }
+      current_decl.clear();
+    }
+  }
+  
+  return count;
+}
+
 // Get the size of a type at an address (in bytes)
 // Returns 0 if no type is defined
 uint64_t idalib_get_type_size(ea_t ea) {
@@ -526,29 +607,90 @@ int32_t idalib_add_udt_member(const char *udt_name, const char *member_name, con
     return TERR_BAD_TYPE;
   }
   
-  // Parse the member type
+  // Parse the member type - try multiple approaches
   tinfo_t mtif;
   qstring mname;
-  if (!parse_decl(&mtif, &mname, nullptr, member_type, PT_SIL)) {
-    // Try just as a type without name
-    qstring decl_with_name;
-    decl_with_name.sprnt("%s %s", member_type, member_name);
-    if (!parse_decl(&mtif, &mname, nullptr, decl_with_name.c_str(), PT_SIL)) {
-      return TERR_BAD_TYPE;
+  bool parsed = false;
+  
+  // First try: parse as "type name;" (full declaration with semicolon)
+  qstring decl_full;
+  decl_full.sprnt("%s %s;", member_type, member_name);
+  if (parse_decl(&mtif, &mname, nullptr, decl_full.c_str(), PT_SIL)) {
+    parsed = true;
+  }
+  
+  // Second try: parse as "type name" (without semicolon)
+  if (!parsed) {
+    qstring decl_no_semi;
+    decl_no_semi.sprnt("%s %s", member_type, member_name);
+    if (parse_decl(&mtif, &mname, nullptr, decl_no_semi.c_str(), PT_SIL)) {
+      parsed = true;
     }
+  }
+  
+  // Third try: just the type itself with semicolon
+  if (!parsed) {
+    qstring type_with_semi;
+    type_with_semi.sprnt("%s;", member_type);
+    if (parse_decl(&mtif, &mname, nullptr, type_with_semi.c_str(), PT_SIL)) {
+      parsed = true;
+    }
+  }
+  
+  // Fourth try: just the type itself
+  if (!parsed) {
+    if (parse_decl(&mtif, &mname, nullptr, member_type, PT_SIL)) {
+      parsed = true;
+    }
+  }
+  
+  // Fifth try: look up as a named type
+  if (!parsed) {
+    if (mtif.get_named_type(nullptr, member_type)) {
+      parsed = true;
+    }
+  }
+  
+  if (!parsed) {
+    return TERR_BAD_TYPE;
+  }
+  
+  // Get current UDT data to calculate proper offset
+  udt_type_data_t udt;
+  if (!tif.get_udt_details(&udt)) {
+    return TERR_BAD_TYPE;
   }
   
   // Calculate offset in bits
   uint64_t bit_offset = 0;
   if (offset < 0) {
-    // Auto-place at end: get current unpadded size
-    bit_offset = tif.get_unpadded_size() * 8;
+    // Auto-place at end: calculate based on existing members
+    if (udt.size() > 0) {
+      // Get last member's end position
+      const udm_t &last = udt.back();
+      bit_offset = last.offset + last.size;
+    }
   } else {
     bit_offset = static_cast<uint64_t>(offset) * 8;
   }
   
-  // Add the member
-  tinfo_code_t code = tif.add_udm(member_name, mtif, bit_offset);
+  // Add the member using udm_t
+  udm_t udm;
+  udm.offset = bit_offset;
+  udm.size = mtif.get_size() * 8;  // size in bits
+  udm.type = mtif;
+  udm.name = member_name;
+  
+  udt.push_back(udm);
+  
+  // Create new tinfo with updated UDT
+  tinfo_t new_tif;
+  if (!new_tif.create_udt(udt, tif.is_union() ? BTF_UNION : BTF_STRUCT)) {
+    return TERR_BAD_TYPE;
+  }
+  
+  // Save back to type library
+  tinfo_code_t code = new_tif.set_named_type(nullptr, udt_name, NTF_REPLACE);
   return static_cast<int32_t>(code);
 }
 

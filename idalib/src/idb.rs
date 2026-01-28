@@ -79,6 +79,8 @@ use crate::ffi::typeinf::{
     idalib_is_ptr_type,
     idalib_is_struct_type,
     idalib_is_udt_union,
+    idalib_parse_and_save_type,
+    idalib_parse_and_save_types,
     idalib_parse_decl,
     idalib_print_type,
 };
@@ -372,6 +374,36 @@ impl IDB {
             Err(_) => return String::new(),
         };
         unsafe { idalib_parse_decl(c_decl.as_ptr()) }
+    }
+
+    /// Parse a C type declaration and save it to the local type library
+    ///
+    /// This allows creating types from C declarations like:
+    /// - `struct MyStruct { int x; int y; };`
+    /// - `typedef struct { float x; float y; } Vec2;`
+    /// - `enum Color { RED, GREEN, BLUE };`
+    ///
+    /// Returns the ordinal of the created type, or 0 on failure.
+    pub fn parse_and_save_type(&self, decl: &str) -> u32 {
+        let c_decl = match CString::new(decl) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+        unsafe { idalib_parse_and_save_type(c_decl.as_ptr()) }
+    }
+
+    /// Parse multiple C declarations and save them to the local type library
+    ///
+    /// This allows creating multiple types at once from C header-like text.
+    /// The declarations should be separated by semicolons.
+    ///
+    /// Returns the number of types successfully created.
+    pub fn parse_and_save_types(&self, decls: &str) -> u32 {
+        let c_decls = match CString::new(decls) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+        unsafe { idalib_parse_and_save_types(c_decls.as_ptr()) }
     }
 
     /// Get the size of a type at an address (in bytes)
@@ -1367,9 +1399,10 @@ impl<'a> Iterator for EntryPointIter<'a> {
         let ordinal = unsafe { get_entry_ordinal(self.index) };
         let addr = unsafe { get_entry(ordinal) };
 
-        // skip?
+        self.index += 1;
+
+        // skip invalid entries
         if addr == BADADDR {
-            self.index += 1;
             return self.next();
         }
 

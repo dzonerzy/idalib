@@ -56,3 +56,42 @@ rust::Slice<const int> idalib_qbasic_block_succs(qbasic_block_t const *blk) {
 rust::Slice<const int> idalib_qbasic_block_preds(qbasic_block_t const *blk) {
   return rust::Slice(std::begin(blk->pred), std::size(blk->pred));
 }
+
+// Update function in the database after modifying func_t fields
+bool idalib_update_func(uint64_t func_ea) {
+  func_t *pfn = get_func((ea_t)func_ea);
+  if (pfn == nullptr) {
+    return false;
+  }
+  return update_func(pfn);
+}
+
+// Set function start address
+// Returns: 0=ok, 1=no code at newstart, 2=bad start, 3=no function, 4=refused
+int32_t idalib_set_func_start(uint64_t func_ea, uint64_t new_start) {
+  return set_func_start((ea_t)func_ea, (ea_t)new_start);
+}
+
+// Set function end address
+bool idalib_set_func_end(uint64_t func_ea, uint64_t new_end) {
+  return set_func_end((ea_t)func_ea, (ea_t)new_end);
+}
+
+// Get function flags
+uint64_t idalib_get_func_flags(uint64_t func_ea) {
+  func_t *pfn = get_func((ea_t)func_ea);
+  if (pfn == nullptr) {
+    return 0;
+  }
+  return pfn->flags;
+}
+
+// Set function flags
+bool idalib_set_func_flags(uint64_t func_ea, uint64_t flags) {
+  func_t *pfn = get_func((ea_t)func_ea);
+  if (pfn == nullptr) {
+    return false;
+  }
+  pfn->flags = (uint32)flags;
+  return update_func(pfn);
+}

@@ -8,7 +8,13 @@ use bitflags::bitflags;
 use cxx::UniquePtr;
 
 use crate::Address;
-use crate::ffi::func::*;
+use crate::ffi::func::{
+    calc_thunk_func_target, cfg_flags, fc_block_type_t, flags, func_t, gdl_graph_t,
+    idalib_func_flags, idalib_func_flow_chart, idalib_func_name, idalib_get_func_cmt,
+    idalib_get_func_flags, idalib_qbasic_block_preds, idalib_qbasic_block_succs,
+    idalib_qflow_graph_getn_block, idalib_set_func_end, idalib_set_func_flags,
+    idalib_set_func_start, idalib_update_func, lock_func, qbasic_block_t, qflow_chart_t,
+};
 use crate::ffi::xref::has_external_refs;
 use crate::ffi::{BADADDR, IDAError, range_t};
 use crate::idb::IDB;
@@ -322,4 +328,63 @@ impl<'a> FunctionCFG<'a> {
     pub fn blocks<'b>(&'b self) -> impl ExactSizeIterator<Item = BasicBlock<'b>> + 'b {
         (0..self.blocks_count()).map(|id| self.block_by_id(id).expect("valid block"))
     }
+}
+
+/// Result codes for set_func_start
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetFuncStartResult {
+    /// Success
+    Ok,
+    /// No instruction at new start address
+    NoCode,
+    /// Bad new start address
+    BadStart,
+    /// No function at the specified address
+    NoFunc,
+    /// A plugin refused the action
+    Refused,
+    /// Unknown error code
+    Unknown(i32),
+}
+
+impl From<i32> for SetFuncStartResult {
+    fn from(code: i32) -> Self {
+        match code {
+            0 => SetFuncStartResult::Ok,
+            1 => SetFuncStartResult::NoCode,
+            2 => SetFuncStartResult::BadStart,
+            3 => SetFuncStartResult::NoFunc,
+            4 => SetFuncStartResult::Refused,
+            _ => SetFuncStartResult::Unknown(code),
+        }
+    }
+}
+
+/// Update function properties in the database.
+/// Call this after modifying function attributes.
+pub fn update_func(func_ea: Address) -> bool {
+    unsafe { idalib_update_func(func_ea.into()) }
+}
+
+/// Set the start address of a function.
+/// Returns a result indicating success or the type of failure.
+pub fn set_func_start(func_ea: Address, new_start: Address) -> SetFuncStartResult {
+    let code = unsafe { idalib_set_func_start(func_ea.into(), new_start.into()) };
+    SetFuncStartResult::from(code)
+}
+
+/// Set the end address of a function.
+pub fn set_func_end(func_ea: Address, new_end: Address) -> bool {
+    unsafe { idalib_set_func_end(func_ea.into(), new_end.into()) }
+}
+
+/// Get function flags by address.
+pub fn get_func_flags(func_ea: Address) -> FunctionFlags {
+    let bits = unsafe { idalib_get_func_flags(func_ea.into()) };
+    FunctionFlags::from_bits_retain(bits)
+}
+
+/// Set function flags.
+pub fn set_func_flags(func_ea: Address, flags: FunctionFlags) -> bool {
+    unsafe { idalib_set_func_flags(func_ea.into(), flags.bits()) }
 }

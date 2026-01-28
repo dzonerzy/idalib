@@ -60,6 +60,7 @@ include_cpp! {
     #include "auto.hpp"
     #include "bytes.hpp"
     #include "entry.hpp"
+    #include "frame.hpp"
     #include "funcs.hpp"
     #include "gdl.hpp"
     #include "hexrays.hpp"
@@ -559,10 +560,46 @@ pub mod hexrays {
         carg_t, carglist_t, cfuncptr_t, init_hexrays_plugin, term_hexrays_plugin,
     };
     pub use super::ffix::{
-        cblock_iter, idalib_hexrays_cblock_iter, idalib_hexrays_cblock_iter_next,
-        idalib_hexrays_cblock_len, idalib_hexrays_cfunc_pseudocode, idalib_hexrays_cfuncptr_inner,
-        idalib_hexrays_cinsn_ea, idalib_hexrays_cinsn_is_expr, idalib_hexrays_cinsn_label_num,
-        idalib_hexrays_cinsn_op, idalib_hexrays_cinsn_opname, idalib_hexrays_decompile_func,
+        cblock_iter,
+        func_arg_info_t,
+        idalib_hexrays_cblock_iter,
+        idalib_hexrays_cblock_iter_next,
+        idalib_hexrays_cblock_len,
+        idalib_hexrays_cfunc_find_lvar_by_name,
+        idalib_hexrays_cfunc_get_lvar,
+        // lvar functions
+        idalib_hexrays_cfunc_lvar_count,
+        idalib_hexrays_cfunc_pseudocode,
+        idalib_hexrays_cfuncptr_inner,
+        idalib_hexrays_cinsn_ea,
+        idalib_hexrays_cinsn_is_expr,
+        idalib_hexrays_cinsn_label_num,
+        idalib_hexrays_cinsn_op,
+        idalib_hexrays_cinsn_opname,
+        idalib_hexrays_clear_cached_cfunc,
+        idalib_hexrays_decompile_func,
+        idalib_hexrays_del_call_type,
+        idalib_hexrays_get_call_type,
+        idalib_hexrays_get_func_arg,
+        idalib_hexrays_get_func_arg_count,
+        idalib_hexrays_get_func_cc,
+        idalib_hexrays_get_func_rettype,
+        // function type manipulation
+        idalib_hexrays_get_func_type,
+        idalib_hexrays_map_lvar,
+        idalib_hexrays_rename_lvar,
+        // user-defined calls
+        idalib_hexrays_set_call_type,
+        idalib_hexrays_set_func_arg_name,
+        idalib_hexrays_set_func_arg_type,
+        idalib_hexrays_set_func_cc,
+        idalib_hexrays_set_func_rettype,
+        idalib_hexrays_set_func_type,
+        idalib_hexrays_set_lvar_cmt,
+        idalib_hexrays_set_lvar_noptr,
+        idalib_hexrays_set_lvar_type,
+        idalib_hexrays_unmap_lvar,
+        lvar_info_t,
     };
 
     unsafe impl cxx::ExternType for cfunc_t {
@@ -748,6 +785,29 @@ mod ffix {
         desc: String,
     }
 
+    #[derive(Default, Clone)]
+    struct lvar_info_t {
+        idx: i32,
+        name: String,
+        type_str: String,
+        width: i32,
+        defea: u64,
+        defblk: i32,
+        is_arg: bool,
+        is_stk_var: bool,
+        is_reg_var: bool,
+        has_user_name: bool,
+        has_user_type: bool,
+        cmt: String,
+    }
+
+    #[derive(Default, Clone)]
+    struct func_arg_info_t {
+        idx: i32,
+        name: String,
+        type_str: String,
+    }
+
     unsafe extern "C++" {
         include!("autocxxgen_ffi.h");
         include!("idalib.hpp");
@@ -757,6 +817,7 @@ mod ffix {
         include!("bytes_extras.h");
         include!("comments_extras.h");
         include!("entry_extras.h");
+        include!("frame_extras.h");
         include!("func_extras.h");
         include!("hexrays_extras.h");
         include!("idalib_extras.h");
@@ -819,6 +880,12 @@ mod ffix {
         unsafe fn idalib_get_func_cmt(f: *const func_t, rptble: bool) -> Result<String>;
         unsafe fn idalib_set_func_cmt(f: *const func_t, cmt: *const c_char, rptble: bool) -> bool;
 
+        unsafe fn idalib_update_func(func_ea: u64) -> bool;
+        unsafe fn idalib_set_func_start(func_ea: u64, new_start: u64) -> i32;
+        unsafe fn idalib_set_func_end(func_ea: u64, new_end: u64) -> bool;
+        unsafe fn idalib_get_func_flags(func_ea: u64) -> u64;
+        unsafe fn idalib_set_func_flags(func_ea: u64, flags: u64) -> bool;
+
         unsafe fn idalib_func_flow_chart(
             f: *mut func_t,
             flags: c_int,
@@ -845,6 +912,78 @@ mod ffix {
         unsafe fn idalib_hexrays_cinsn_label_num(insn: *const cinsn_t) -> c_int;
         unsafe fn idalib_hexrays_cinsn_is_expr(insn: *const cinsn_t) -> bool;
         unsafe fn idalib_hexrays_cinsn_opname(insn: *const cinsn_t) -> String;
+
+        // lvar (local variable) support
+        unsafe fn idalib_hexrays_cfunc_lvar_count(f: *mut cfunc_t) -> usize;
+        unsafe fn idalib_hexrays_cfunc_get_lvar(
+            f: *mut cfunc_t,
+            idx: usize,
+            out: *mut lvar_info_t,
+        ) -> bool;
+        unsafe fn idalib_hexrays_cfunc_find_lvar_by_name(
+            f: *mut cfunc_t,
+            name: *const c_char,
+        ) -> i32;
+        unsafe fn idalib_hexrays_rename_lvar(
+            func_ea: u64,
+            oldname: *const c_char,
+            newname: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_set_lvar_type(
+            func_ea: u64,
+            varname: *const c_char,
+            type_str: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_set_lvar_cmt(
+            func_ea: u64,
+            varname: *const c_char,
+            cmt: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_set_lvar_noptr(
+            func_ea: u64,
+            varname: *const c_char,
+            noptr: bool,
+        ) -> bool;
+        unsafe fn idalib_hexrays_map_lvar(
+            func_ea: u64,
+            from_name: *const c_char,
+            to_name: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_unmap_lvar(func_ea: u64, varname: *const c_char) -> bool;
+
+        // user-defined calls (override call site signatures)
+        unsafe fn idalib_hexrays_set_call_type(
+            func_ea: u64,
+            call_ea: u64,
+            decl: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_del_call_type(func_ea: u64, call_ea: u64) -> bool;
+        unsafe fn idalib_hexrays_get_call_type(func_ea: u64, call_ea: u64) -> String;
+
+        // function type/signature manipulation
+        unsafe fn idalib_hexrays_get_func_type(func_ea: u64) -> String;
+        unsafe fn idalib_hexrays_set_func_type(func_ea: u64, decl: *const c_char) -> bool;
+        unsafe fn idalib_hexrays_get_func_arg_count(func_ea: u64) -> i32;
+        unsafe fn idalib_hexrays_get_func_arg(
+            func_ea: u64,
+            idx: i32,
+            out: *mut func_arg_info_t,
+        ) -> bool;
+        unsafe fn idalib_hexrays_set_func_arg_name(
+            func_ea: u64,
+            idx: i32,
+            name: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_set_func_arg_type(
+            func_ea: u64,
+            idx: i32,
+            type_str: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_hexrays_get_func_rettype(func_ea: u64) -> String;
+        unsafe fn idalib_hexrays_set_func_rettype(func_ea: u64, type_str: *const c_char) -> bool;
+        unsafe fn idalib_hexrays_get_func_cc(func_ea: u64) -> String;
+        unsafe fn idalib_hexrays_set_func_cc(func_ea: u64, cc_name: *const c_char) -> bool;
+        unsafe fn idalib_hexrays_clear_cached_cfunc(func_ea: u64);
 
         unsafe fn idalib_inf_get_version() -> u16;
         unsafe fn idalib_inf_get_genflags() -> u16;
@@ -1061,6 +1200,9 @@ mod ffix {
 
         unsafe fn idalib_get_strlist_item_addr(index: usize) -> c_ulonglong;
         unsafe fn idalib_get_strlist_item_length(index: usize) -> usize;
+        unsafe fn idalib_get_strlist_item_type(index: usize) -> i32;
+        unsafe fn idalib_get_string_width(strtype: i32) -> i32;
+        unsafe fn idalib_get_string_layout(strtype: i32) -> i32;
 
         unsafe fn idalib_ea2str(ea: c_ulonglong) -> String;
 
@@ -1082,6 +1224,8 @@ mod ffix {
         unsafe fn idalib_del_type(ea: c_ulonglong);
         unsafe fn idalib_apply_cdecl(ea: c_ulonglong, decl: *const c_char) -> bool;
         unsafe fn idalib_parse_decl(decl: *const c_char) -> String;
+        unsafe fn idalib_parse_and_save_type(decl: *const c_char) -> u32;
+        unsafe fn idalib_parse_and_save_types(decls: *const c_char) -> u32;
         unsafe fn idalib_get_type_size(ea: c_ulonglong) -> u64;
         unsafe fn idalib_is_ptr_type(ea: c_ulonglong) -> bool;
         unsafe fn idalib_is_func_type(ea: c_ulonglong) -> bool;
@@ -1152,7 +1296,48 @@ mod ffix {
         -> String;
         unsafe fn idalib_get_type_xrefs(type_name: *const c_char) -> String;
 
+        // frame - stack frame operations
+        unsafe fn idalib_get_frame_size(func_ea: c_ulonglong) -> u64;
+        unsafe fn idalib_get_frame_lvars_size(func_ea: c_ulonglong) -> u64;
+        unsafe fn idalib_get_frame_regs_size(func_ea: c_ulonglong) -> u64;
+        unsafe fn idalib_get_frame_args_size(func_ea: c_ulonglong) -> u64;
+        unsafe fn idalib_get_frame_fpd(func_ea: c_ulonglong) -> i64;
+        unsafe fn idalib_get_frame_retsize(func_ea: c_ulonglong) -> i32;
+        unsafe fn idalib_has_frame(func_ea: c_ulonglong) -> bool;
+        unsafe fn idalib_get_frame_member_count(func_ea: c_ulonglong) -> u32;
+        unsafe fn idalib_get_frame_member(func_ea: c_ulonglong, index: u32) -> String;
+        unsafe fn idalib_find_frame_member_by_offset(func_ea: c_ulonglong, offset: u64) -> String;
+        unsafe fn idalib_find_frame_member_by_name(
+            func_ea: c_ulonglong,
+            name: *const c_char,
+        ) -> String;
+        unsafe fn idalib_define_stkvar(
+            func_ea: c_ulonglong,
+            name: *const c_char,
+            stkoff: i64,
+            type_str: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_delete_frame_members(
+            func_ea: c_ulonglong,
+            start_offset: u64,
+            end_offset: u64,
+        ) -> bool;
+        unsafe fn idalib_set_frame_member_type(
+            func_ea: c_ulonglong,
+            offset: u64,
+            type_str: *const c_char,
+        ) -> bool;
+        unsafe fn idalib_get_spd(func_ea: c_ulonglong, ea: c_ulonglong) -> i64;
+        unsafe fn idalib_get_effective_spd(func_ea: c_ulonglong, ea: c_ulonglong) -> i64;
+
         unsafe fn idalib_get_input_file_path() -> String;
+
+        // Import module functions
+        unsafe fn idalib_get_import_module_qty() -> u32;
+        unsafe fn idalib_get_import_module_name(mod_index: u32) -> String;
+        unsafe fn idalib_get_import_count(mod_index: u32) -> u32;
+        unsafe fn idalib_get_import(mod_index: u32, import_index: u32) -> String;
+        unsafe fn idalib_get_module_imports(mod_index: u32) -> String;
 
         unsafe fn idalib_plugin_version(p: *const plugin_t) -> u64;
         unsafe fn idalib_plugin_flags(p: *const plugin_t) -> u64;
@@ -1243,8 +1428,9 @@ pub mod func {
     };
     pub use super::ffix::{
         idalib_func_flags, idalib_func_flow_chart, idalib_func_name, idalib_get_func_cmt,
-        idalib_qbasic_block_preds, idalib_qbasic_block_succs, idalib_qflow_graph_getn_block,
-        idalib_set_func_cmt,
+        idalib_get_func_flags, idalib_qbasic_block_preds, idalib_qbasic_block_succs,
+        idalib_qflow_graph_getn_block, idalib_set_func_cmt, idalib_set_func_end,
+        idalib_set_func_flags, idalib_set_func_start, idalib_update_func,
     };
 
     pub mod flags {
@@ -1262,6 +1448,16 @@ pub mod func {
             FC_RESERVED,
         };
     }
+}
+
+pub mod frame {
+    pub use super::ffix::{
+        idalib_define_stkvar, idalib_delete_frame_members, idalib_find_frame_member_by_name,
+        idalib_find_frame_member_by_offset, idalib_get_effective_spd, idalib_get_frame_args_size,
+        idalib_get_frame_fpd, idalib_get_frame_lvars_size, idalib_get_frame_member,
+        idalib_get_frame_member_count, idalib_get_frame_regs_size, idalib_get_frame_retsize,
+        idalib_get_frame_size, idalib_get_spd, idalib_has_frame, idalib_set_frame_member_type,
+    };
 }
 
 pub mod processor {
@@ -1336,7 +1532,10 @@ pub mod search {
 
 pub mod strings {
     pub use super::ffi::{build_strlist, clear_strlist, get_strlist_qty};
-    pub use super::ffix::{idalib_get_strlist_item_addr, idalib_get_strlist_item_length};
+    pub use super::ffix::{
+        idalib_get_string_layout, idalib_get_string_width, idalib_get_strlist_item_addr,
+        idalib_get_strlist_item_length, idalib_get_strlist_item_type,
+    };
 }
 
 pub mod loader {
@@ -1355,7 +1554,10 @@ pub mod nalt {
     pub use super::ffi::{
         retrieve_input_file_md5, retrieve_input_file_sha256, retrieve_input_file_size,
     };
-    pub use super::ffix::idalib_get_input_file_path;
+    pub use super::ffix::{
+        idalib_get_import, idalib_get_import_count, idalib_get_import_module_name,
+        idalib_get_import_module_qty, idalib_get_input_file_path, idalib_get_module_imports,
+    };
 }
 
 pub mod typeinf {
@@ -1364,7 +1566,8 @@ pub mod typeinf {
         idalib_apply_cdecl, idalib_del_type, idalib_get_func_prototype, idalib_get_op_type_str,
         idalib_get_type_size, idalib_get_type_str, idalib_has_type, idalib_is_array_type,
         idalib_is_enum_type, idalib_is_func_type, idalib_is_ptr_type, idalib_is_struct_type,
-        idalib_parse_decl, idalib_print_type,
+        idalib_parse_and_save_type, idalib_parse_and_save_types, idalib_parse_decl,
+        idalib_print_type,
     };
 
     // Named type operations
