@@ -145,15 +145,15 @@ impl IDAVersion {
 
 static INIT: OnceLock<Mutex<()>> = OnceLock::new();
 
-#[cfg(not(target_os = "windows"))]
 unsafe extern "C" {
     static mut batch: std::ffi::c_char;
 }
 
 pub(crate) type IDARuntimeHandle = MutexGuard<'static, ()>;
 
+/// Force IDA into batch mode, preventing dialog boxes and user input prompts.
+/// This is essential for headless/automated usage to prevent blocking.
 pub fn force_batch_mode() {
-    #[cfg(not(target_os = "windows"))]
     unsafe {
         batch = 1;
     }

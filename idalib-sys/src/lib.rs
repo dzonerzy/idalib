@@ -831,6 +831,7 @@ mod ffix {
         include!("strings_extras.h");
         include!("typeinf_extras.h");
         include!("ua_extras.h");
+        include!("pdb_extras.h");
 
         type c_short = autocxx::c_short;
         type c_int = autocxx::c_int;
@@ -1347,6 +1348,10 @@ mod ffix {
             minor: *mut c_int,
             build: *mut c_int,
         ) -> bool;
+
+        // PDB loading
+        unsafe fn idalib_load_pdb(pdb_path: *const c_char, load_addr: c_ulonglong) -> bool;
+        unsafe fn idalib_get_pdb_load_result() -> c_ulonglong;
     }
 }
 
@@ -1548,6 +1553,10 @@ pub mod loader {
             PLUGIN_PROC, PLUGIN_SCRIPTED, PLUGIN_SEG, PLUGIN_UNL,
         };
     }
+}
+
+pub mod pdb {
+    pub use super::ffix::{idalib_get_pdb_load_result, idalib_load_pdb};
 }
 
 pub mod nalt {
