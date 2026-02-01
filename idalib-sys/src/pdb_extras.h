@@ -49,8 +49,9 @@ inline bool idalib_load_pdb(const char* pdb_path, uint64_t load_addr) {
   size_t path_len = strlen(pdb_path);
   pdb_node.supset(PDB_DLLNAME_NODE_IDX, pdb_path, path_len + 1);
 
-  // Run the PDB plugin with PDB_CC_USER_WITH_DATA
-  bool result = run_plugin(pdb_plugin, PDB_CC_USER_WITH_DATA);
+  // Run the PDB plugin with PDB_CC_USER
+  // PDB_CC_USER = user invoked 'load pdb' command for the input file
+  bool result = run_plugin(pdb_plugin, PDB_CC_USER);
 
   // Check the result stored in the netnode
   // After invocation, result (boolean) is stored in: netnode(PDB_NODE_NAME).altval(PDB_DLLBASE_NODE_IDX)
