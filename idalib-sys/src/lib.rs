@@ -832,6 +832,7 @@ mod ffix {
         include!("typeinf_extras.h");
         include!("ua_extras.h");
         include!("pdb_extras.h");
+        include!("expr_extras.h");
 
         type c_short = autocxx::c_short;
         type c_int = autocxx::c_int;
@@ -1359,6 +1360,12 @@ mod ffix {
             path_size: usize,
         ) -> bool;
         unsafe fn idalib_get_messages(out_buf: *mut c_char, buf_size: usize, count: i32);
+
+        // Scripting/extlang support
+        fn idalib_has_python_extlang() -> bool;
+        fn idalib_eval_python_snippet(code: &str, out_error: &mut String) -> bool;
+        fn idalib_eval_idc_expr(expr: &str, out_error: &mut String) -> bool;
+        fn idalib_get_current_extlang_name() -> String;
     }
 }
 
@@ -1566,6 +1573,13 @@ pub mod pdb {
     pub use super::ffix::{
         idalib_get_current_imagebase, idalib_get_messages, idalib_get_pdb_load_result,
         idalib_load_pdb, idalib_verify_pdb_netnode,
+    };
+}
+
+pub mod scripting {
+    pub use super::ffix::{
+        idalib_eval_idc_expr, idalib_eval_python_snippet, idalib_get_current_extlang_name,
+        idalib_has_python_extlang,
     };
 }
 
