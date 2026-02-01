@@ -2,6 +2,9 @@
 
 #include "loader.hpp"
 #include "netnode.hpp"
+#include "segment.hpp"
+#include "ida.hpp"
+#include "nalt.hpp"
 
 #include <cstdint>
 #include <string>
@@ -36,26 +39,27 @@ inline bool idalib_load_pdb(const char* pdb_path, uint64_t load_addr) {
     return false;
   }
 
-  // Create/get the PDB netnode
-  netnode pdb_node(PDB_NODE_NAME, 0, true);
-  if (pdb_node == BADNODE) {
-    return false;
+  // If load_addr is 0, get the image base from IDA's inf structure
+  // get_imagebase() is the actual PE image base address
+  if (load_addr == 0) {
+    load_addr = (uint64_t)get_imagebase();
   }
+
+  // Create the PDB netnode exactly as IDA does it
+  netnode pdb_node;
+  pdb_node.create(PDB_NODE_NAME);
 
   // Set the load address (altval at index 0)
   pdb_node.altset(PDB_DLLBASE_NODE_IDX, load_addr);
 
-  // Set the PDB file path (supstr at index 0)
+  // Set the PDB file path (supset at index 0)
+  // The plugin reads this back with supstr()
   size_t path_len = strlen(pdb_path);
   pdb_node.supset(PDB_DLLNAME_NODE_IDX, pdb_path, path_len + 1);
 
-  // Run the PDB plugin with PDB_CC_USER
-  // PDB_CC_USER = user invoked 'load pdb' command for the input file
-  bool result = run_plugin(pdb_plugin, PDB_CC_USER);
-
-  // Check the result stored in the netnode
-  // After invocation, result (boolean) is stored in: netnode(PDB_NODE_NAME).altval(PDB_DLLBASE_NODE_IDX)
-  // Note: We also return the direct result from run_plugin for now
+  // Run the PDB plugin with PDB_CC_USER_WITH_DATA
+  // PDB_CC_USER_WITH_DATA = load additional pdb with data from netnode
+  bool result = run_plugin(pdb_plugin, PDB_CC_USER_WITH_DATA);
   
   return result;
 }
@@ -68,4 +72,51 @@ inline uint64_t idalib_get_pdb_load_result() {
     return 0;
   }
   return pdb_node.altval(PDB_DLLBASE_NODE_IDX);
+}
+
+// Get the current image base for debugging
+inline uint64_t idalib_get_current_imagebase() {
+  return (uint64_t)get_imagebase();
+}
+
+// Get recent IDA messages (for debugging)
+inline void idalib_get_messages(char* out_buf, size_t buf_size, int count) {
+  if (out_buf == nullptr || buf_size == 0) return;
+  out_buf[0] = '\0';
+  
+  qstrvec_t lines;
+  msg_get_lines(&lines, count);
+  
+  size_t pos = 0;
+  for (size_t i = 0; i < lines.size() && pos < buf_size - 1; i++) {
+    size_t len = lines[i].length();
+    if (pos + len + 1 >= buf_size) break;
+    qstrncpy(out_buf + pos, lines[i].c_str(), buf_size - pos);
+    pos += len;
+    if (pos < buf_size - 1) {
+      out_buf[pos++] = '\n';
+    }
+  }
+  out_buf[pos] = '\0';
+}
+
+// Debug function to verify netnode state before/after PDB load
+inline bool idalib_verify_pdb_netnode(uint64_t* out_load_addr, char* out_path, size_t path_size) {
+  netnode pdb_node(PDB_NODE_NAME);
+  if (pdb_node == BADNODE) {
+    return false;
+  }
+  
+  if (out_load_addr) {
+    *out_load_addr = pdb_node.altval(PDB_DLLBASE_NODE_IDX);
+  }
+  
+  if (out_path && path_size > 0) {
+    qstring tmp;
+    pdb_node.supstr(&tmp, PDB_DLLNAME_NODE_IDX);
+    // Use qstrncpy instead of strncpy (IDA SDK safe function)
+    qstrncpy(out_path, tmp.c_str(), path_size);
+  }
+  
+  return true;
 }

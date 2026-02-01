@@ -1352,6 +1352,13 @@ mod ffix {
         // PDB loading
         unsafe fn idalib_load_pdb(pdb_path: *const c_char, load_addr: c_ulonglong) -> bool;
         unsafe fn idalib_get_pdb_load_result() -> c_ulonglong;
+        unsafe fn idalib_get_current_imagebase() -> c_ulonglong;
+        unsafe fn idalib_verify_pdb_netnode(
+            out_load_addr: *mut c_ulonglong,
+            out_path: *mut c_char,
+            path_size: usize,
+        ) -> bool;
+        unsafe fn idalib_get_messages(out_buf: *mut c_char, buf_size: usize, count: i32);
     }
 }
 
@@ -1556,7 +1563,10 @@ pub mod loader {
 }
 
 pub mod pdb {
-    pub use super::ffix::{idalib_get_pdb_load_result, idalib_load_pdb};
+    pub use super::ffix::{
+        idalib_get_current_imagebase, idalib_get_messages, idalib_get_pdb_load_result,
+        idalib_load_pdb, idalib_verify_pdb_netnode,
+    };
 }
 
 pub mod nalt {
