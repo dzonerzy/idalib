@@ -145,9 +145,18 @@ impl IDAVersion {
 
 static INIT: OnceLock<Mutex<()>> = OnceLock::new();
 
+// On non-Windows platforms, we can directly access the batch symbol
 #[cfg(not(target_os = "windows"))]
 unsafe extern "C" {
     static mut batch: std::ffi::c_char;
+}
+
+// On Windows, DLL data imports use __imp_ prefix and are pointers to the actual data.
+// The ida.lib import library exports __imp_batch as a pointer to the batch variable.
+#[cfg(target_os = "windows")]
+unsafe extern "C" {
+    #[link_name = "__imp_batch"]
+    static mut batch_ptr: *mut bool;
 }
 
 pub(crate) type IDARuntimeHandle = MutexGuard<'static, ()>;
@@ -158,6 +167,15 @@ pub fn force_batch_mode() {
     #[cfg(not(target_os = "windows"))]
     unsafe {
         batch = 1;
+    }
+
+    #[cfg(target_os = "windows")]
+    unsafe {
+        // On Windows, batch_ptr is a pointer to the actual batch variable in ida.dll
+        // We need to dereference it to set the value
+        if !batch_ptr.is_null() {
+            *batch_ptr = true;
+        }
     }
 }
 

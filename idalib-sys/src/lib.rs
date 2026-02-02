@@ -1701,6 +1701,34 @@ pub mod ida {
         );
 
         unsafe { env::set_var("TVHEADLESS", "1") };
+        unsafe { env::set_var("IDA_IS_INTERACTIVE", "0") };
+        // Fix attempts for IDAPython hang on Windows when stdin is a pipe (MCP server scenario)
+        unsafe { env::set_var("PYTHONLEGACYWINDOWSSTDIO", "1") };
+        unsafe { env::set_var("PYTHONNOUSERSITE", "1") };
+        unsafe { env::set_var("PYTHONUNBUFFERED", "1") };
+        unsafe { env::set_var("PYTHONDONTWRITEBYTECODE", "1") };
+
+        // On Windows, redirect stdin to NUL before IDA init to prevent IDAPython
+        // from blocking on lseek() when stdin is a pipe from parent process
+        #[cfg(target_os = "windows")]
+        unsafe {
+            unsafe extern "C" {
+                fn _dup2(fd: i32, fd2: i32) -> i32;
+                fn _open(filename: *const i8, oflag: i32) -> i32;
+                fn _close(fd: i32) -> i32;
+            }
+
+            const O_RDONLY: i32 = 0;
+
+            // Open NUL device
+            let nul_path = b"NUL\0".as_ptr() as *const i8;
+            let nul_fd = _open(nul_path, O_RDONLY);
+            if nul_fd >= 0 {
+                // Replace stdin (fd 0) with NUL
+                _dup2(nul_fd, 0);
+                _close(nul_fd);
+            }
+        }
 
         let res = unsafe { ffix::init_library(c_int(0), ptr::null_mut()) };
 
