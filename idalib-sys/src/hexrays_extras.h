@@ -271,8 +271,9 @@ bool idalib_hexrays_set_lvar_type(uint64_t func_ea, const char *varname, const c
   }
 
   tinfo_t tif;
-  qstring name;
-  if (!parse_decl(&tif, &name, nullptr, type_str, PT_SIL)) {
+  // Use tinfo_t::parse() which is the SDK-recommended approach
+  // It internally adds PT_SEMICOLON and handles type-only declarations correctly
+  if (!tif.parse(type_str, nullptr, PT_SIL)) {
     return false;
   }
 
@@ -365,14 +366,14 @@ bool idalib_hexrays_set_call_type(uint64_t func_ea, uint64_t call_ea, const char
   
   // Try parse_user_call first
   if (!parse_user_call(&udc, decl_str.c_str(), true)) {
-    // Try alternative: manually parse the declaration
+    // Try alternative: use tinfo_t::parse() which is the SDK-recommended approach
     tinfo_t tif;
-    qstring name;
-    if (!parse_decl(&tif, &name, nullptr, decl_str.c_str(), PT_SIL)) {
+    if (!tif.parse(decl_str.c_str(), nullptr, PT_SIL)) {
       return false;
     }
     udc.tif = tif;
-    udc.name = name;
+    // Extract function name from declaration if possible
+    udc.name.clear();
   }
 
   udcall_map_t udcalls;
@@ -439,8 +440,8 @@ rust::String idalib_hexrays_get_func_type(uint64_t func_ea) {
 // Set function type/signature
 bool idalib_hexrays_set_func_type(uint64_t func_ea, const char *decl) {
   tinfo_t tif;
-  qstring name;
-  if (!parse_decl(&tif, &name, nullptr, decl, PT_SIL)) {
+  // Use tinfo_t::parse() which is the SDK-recommended approach
+  if (!tif.parse(decl, nullptr, PT_SIL)) {
     return false;
   }
 
@@ -562,8 +563,8 @@ bool idalib_hexrays_set_func_arg_type(uint64_t func_ea, int32_t idx, const char 
   }
 
   tinfo_t arg_type;
-  qstring arg_name;
-  if (!parse_decl(&arg_type, &arg_name, nullptr, type_str, PT_SIL)) {
+  // Use tinfo_t::parse() which is the SDK-recommended approach
+  if (!arg_type.parse(type_str, nullptr, PT_SIL)) {
     return false;
   }
 
@@ -613,9 +614,14 @@ bool idalib_hexrays_set_func_rettype(uint64_t func_ea, const char *type_str) {
   }
 
   tinfo_t rettype;
-  qstring ret_name;
-  if (!parse_decl(&rettype, &ret_name, nullptr, type_str, PT_SIL)) {
-    return false;
+  // Special case for "void" - create it directly
+  if (strcmp(type_str, "void") == 0) {
+    rettype.create_simple_type(BT_VOID);
+  } else {
+    // Use tinfo_t::parse() which is the SDK-recommended approach
+    if (!rettype.parse(type_str, nullptr, PT_SIL)) {
+      return false;
+    }
   }
 
   ftd.rettype = rettype;
